@@ -87,23 +87,35 @@ function animate() {
 			players[myID].z = myCube.position.z;
 			players[myID].angle = myCube.rotation.y;
 		}
-		// Update camera orientation only if mouse moved
-                camEuler.y += dx / 300;
+		// Update camera orientation
+		camEuler.y += dx / 300;
 		ymod -= dy / 100;
-		const quaternion = new THREE.Quaternion();
-		quaternion.setFromEuler(camEuler);
-		// Camera offset from player (position behind and above)
+		const quaternion = new THREE.Quaternion().setFromEuler(camEuler);
+		// Camera offset from player (behind and slightly above)
 		const camOffset = new THREE.Vector3(0, 4, -8).applyQuaternion(quaternion);
 		camera.position.copy(myCube.position.clone().add(camOffset));
-		// If mouse moved, update the lookTarget
-		if (dx !== 0 || dy !== 0 || !cameraLocked) {
-			const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
-			lookTarget.copy(camera.position).add(forward.multiplyScalar(100)); // Look far ahead
-			lookTarget.y = myCube.position.y + 4 + ymod;
-			cameraLocked = true;
+		// Calculate forward direction
+		const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
+		const rayOrigin = camera.position.clone();
+		const rayDirection = forward.clone().normalize();
+		// Perform raycast
+		raycaster.set(rayOrigin, rayDirection);
+		const hitList = raycaster.intersectObjects(
+			scene.children.filter(obj => obj !== myCube), true
+		);
+		let targetPoint;
+		if (hitList.length > 0) {
+			// Target the first object hit
+			targetPoint = hitList[0].point;
+		} else {
+			// Fallback: aim far forward
+			targetPoint = rayOrigin.clone().add(rayDirection.multiplyScalar(100))
+			targetPoint.y = myCube.position.y + 4 + ymod;
 		}
-		// Always look at last look target
+		// Smoothly track the look target
+		lookTarget.lerp(targetPoint, 0.2);
 		camera.lookAt(lookTarget);
+		// Reset mouse deltas
 		dx = 0;
 		dy = 0;
 	} else {
