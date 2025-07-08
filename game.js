@@ -30,6 +30,8 @@ const connections = [];
 let scene, camera, renderer;
 let camEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const raycaster = new THREE.Raycaster();
+let lookTarget = new THREE.Vector3();
+let cameraLocked = false;
 const playerCubes = {};
 function makeVehicle() {
 	return new Promise((resolve, reject) => {
@@ -85,14 +87,23 @@ function animate() {
 			players[myID].z = myCube.position.z;
 			players[myID].angle = myCube.rotation.y;
 		}
-		const camoff = new THREE.Vector3(0, 4, -8);
-		camEuler.y += dx / 300;
+		// Update camera orientation only if mouse moved
+                camEuler.y += dx / 300;
+		ymod -= dy / 100;
 		const quaternion = new THREE.Quaternion();
 		quaternion.setFromEuler(camEuler);
-		camoff.applyQuaternion(quaternion);
-		camera.position.copy(myCube.position.clone().add(camoff));
-		ymod -= dy/100
-		camera.lookAt(myCube.position.clone().add(new THREE.Vector3(0, 4 + ymod, 0)));
+		// Camera offset from player (position behind and above)
+		const camOffset = new THREE.Vector3(0, 4, -8).applyQuaternion(quaternion);
+		camera.position.copy(myCube.position.clone().add(camOffset));
+		// If mouse moved, update the lookTarget
+		if (dx !== 0 || dy !== 0 || !cameraLocked) {
+			const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion);
+			lookTarget.copy(camera.position).add(forward.multiplyScalar(100)); // Look far ahead
+			lookTarget.y = myCube.position.y + 4 + ymod;
+			cameraLocked = true;
+		}
+		// Always look at last look target
+		camera.lookAt(lookTarget);
 		dx = 0;
 		dy = 0;
 	} else {
