@@ -100,9 +100,13 @@ function animate() {
 		const rayDirection = forward.clone().normalize();
 		// Perform raycast
 		raycaster.set(rayOrigin, rayDirection);
+		const excludeMyCube = new Set();
+		myCube.traverse(obj => excludeMyCube.add(obj));
 		const hitList = raycaster.intersectObjects(
-			scene.children.filter(obj => obj !== myCube), true
+			scene.children.filter(obj => !excludeMyCube.has(obj)),
+			true
 		);
+
 		let targetPoint;
 		if (hitList.length > 0) {
 			// Target the first object hit
