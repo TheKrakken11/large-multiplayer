@@ -4,31 +4,47 @@
 	<title>Battle Multiplayer</title>
 	<link rel="icon" href="https://d1nhio0ox7pgb.cloudfront.net/_img/g_collection_png/standard/32x32/object_cube.png" type="image/x-icon" />
 	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		html, body {
+			margin: 0;
+			padding: 0;
+			overflow: hidden;
+			width: 100%;
+			height: 100%;
+		}
+
+		canvas {
+			display: block;
+			width: 100%;
+			height: 100%;
+		}
+
+		#loading, #qcheck {
+			position: fixed;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			font-size: 24px;
+			font-family: sans-serif;
+			text-align: center;
+			z-index: 9999;
+		}
+
+		#loading {
+			color: black;
+			pointer-events: none;
+		}
+
+		#qcheck {
+			color: white;
+			display: block;
+		}
+	</style>
 </head>
 <body>
-	<div id="loading" style="
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		font-size: 24px;
-		font-family: sans-serif;
-		color: black;
-		z-index: 9999;
-		pointer-events: none;
-	">
-		Loading...
-	</div>
-	<div id="qcheck" style="
-		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-		font-size: 24px;
-		font-family: sans-serif;
-		color: white;
-		display: block;
-	">
+	<div id="loading">Loading...</div>
+
+	<div id="qcheck">
 		<p>Press Q to lock mouse pointer and begin game</p>
 		<p>Note: Your vehicle may take time to appear</p>
 	</div>
