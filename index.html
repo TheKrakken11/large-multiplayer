@@ -39,11 +39,24 @@
 			color: white;
 			display: block;
 		}
+		
+		#center {
+			position: fixed;
+			top: 50%;
+			left: 50%;
+			width: 6px;
+			height: 6px;
+			margin-left: -3px;
+			margin-top: -3px;
+			background-color: red;
+			border-radius: 50%;
+			pointer-events: none;
+		}
 	</style>
 </head>
 <body>
 	<div id="loading">Loading...</div>
-
+	<div id="center"></div>
 	<div id="qcheck">
 		<p>Press Q to lock mouse pointer and begin game</p>
 		<p>Note: Your vehicle may take time to appear</p>

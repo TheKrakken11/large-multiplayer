@@ -23,6 +23,7 @@ let isHost = false;
 let myID = null;
 let mySpeed = 0;
 let dx = 0, dy = 0;
+let mouseMoved = false;
 const players = {};
 let ground;
 const connections = [];
@@ -30,8 +31,34 @@ let scene, camera, renderer;
 let camEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const raycaster = new THREE.Raycaster();
 let lookTarget = new THREE.Vector3();
+let zoom = 0;
 let cameraLocked = false;
 const playerCubes = {};
+function random(min, max) {
+	return Math.random() * (max - min) + min;
+}
+function randomInt(min, max) {
+	return Math.floor(random(min, max));
+}
+function makeTree(x, y) {
+	return new Promise((resolve, reject) => {
+		const loader = new GLTFLoader();
+		loader.load(
+			'Tree.glb',
+			(gltf) => {
+				const tree = gltf.scene;
+				tree.position.set(x, 0, y);
+				tree.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), random(0, (2 * Math.PI)));
+				const scale = random(0.2, 0.4);
+				tree.scale.set(scale, scale, scale);
+				tree.position.y = 7 * scale;
+				resolve(tree);
+			},
+			undefined,
+			(error) => reject(error)
+		);
+	});
+}
 function makeVehicle() {
 	return new Promise((resolve, reject) => {
 		const loader = new GLTFLoader();
@@ -49,7 +76,7 @@ function makeVehicle() {
 		);
 	});
 }
-function init3d() {
+async function init3d() {
 	scene = new THREE.Scene();
 	scene.background = new THREE.Color(0x87ceeb);
 	camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -71,6 +98,12 @@ function init3d() {
 	ground.rotation.x = -Math.PI / 2
 	ground.position.y = -1.7
 	scene.add(ground);
+	for (let i = 0; i < 150; i++) {
+		const treex = randomInt(-250, 250);
+		const treey = randomInt(-250, 250);
+		const tree = await makeTree(treex, treey);
+		scene.add(tree);
+	}
 	animate();
 }
 function animate() {
@@ -88,36 +121,47 @@ function animate() {
 		}
 		// Update camera orientation
 		// Update camera orientation
-		camEuler.y += dx / 300;
-		camEuler.x -= dy / 300;
-		// Clamp pitch to prevent flipping
-		const pitchLimit = Math.PI / 2 - 0.1;
-		camEuler.x = Math.max(-pitchLimit, Math.min(pitchLimit, camEuler.x));
+		if (mouseMoved) {
+			const carToCamDir = new THREE.Vector3().subVectors(camera.position, myCube.position).normalize();
+			raycaster.set(myCube.position, carToCamDir);
+			const hitGround = raycaster.intersectObject(ground, true);
+			camEuler.y += dx / 300;
+			if (hitGround.length === 0 || dy > 0) {
+				camEuler.x += dy / 300;
+			}
+			// Clamp pitch to prevent flipping
+			const pitchLimit = Math.PI / 2 - 0.1;
+			camEuler.x = Math.max(-pitchLimit, Math.min(pitchLimit, camEuler.x));
+		} else {
+			const distancex = lookTarget.x - myCube.position.x;
+			const distancez = lookTarget.z - myCube.position.z;
+			const angle = Math.atan2(distancex, distancez);
+			camEuler.y = angle
+		}
 		const quaternion = new THREE.Quaternion().setFromEuler(camEuler)
 		// Camera offset behind and slightly above the player
-		const camOffset = new THREE.Vector3(0, 4, -8).applyQuaternion(quaternion);
+		const camOffset = new THREE.Vector3(0, 4, -8 + zoom).applyQuaternion(quaternion);
 		camera.position.copy(myCube.position.clone().add(camOffset));
 		// Calculate forward direction
 		// Calculate forward direction
 		const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
 		const rayOrigin = camera.position.clone();
 		const rayDirection = forward.clone().normalize();
-		raycaster.set(rayOrigin, rayDirection);
-		const excludeMyCube = new Set();
-		myCube.traverse(obj => excludeMyCube.add(obj));
-		const hitList = raycaster.intersectObjects(
-			scene.children.filter(obj => !excludeMyCube.has(obj)),
-			true
-		);
-		let targetPoint;
-		if (hitList.length > 0) {
-			targetPoint = hitList[0].point;
-		} else {
-			targetPoint = rayOrigin.clone().add(rayDirection.multiplyScalar(100));
+		if (mouseMoved) {
+			raycaster.set(rayOrigin, rayDirection);
+			const excludeMyCube = new Set();
+			myCube.traverse(obj => excludeMyCube.add(obj));
+			const hitList = raycaster.intersectObjects(
+				scene.children.filter(obj => !excludeMyCube.has(obj)),
+				true
+			);
+			if (hitList.length > 0) {
+				lookTarget.copy(hitList[0].point);
+			} else {
+				lookTarget.copy(rayOrigin.clone().add(rayDirection.multiplyScalar(100)));
+			}
+			mouseMoved = false;
 		}
-
-		// Smoothly track the look target
-		lookTarget.lerp(targetPoint, 0.2);
 		camera.lookAt(lookTarget);
 		// Reset mouse deltas
 		dx = 0;
@@ -243,11 +287,11 @@ function createInitialPlayer() {
 //add stuff here
 document.addEventListener('keydown', event => {
 	if (event.key === 'w') {
-		if (mySpeed < 0.5) {
+		if (mySpeed < 0.125) {
 			mySpeed += 0.05
 		}
 	} else if (event.key === 's') {
-		if (mySpeed > -0.25) {
+		if (mySpeed > -0.1) {
 			mySpeed -= 0.05
 		}
 	} else if (event.key === 'a') {
@@ -272,6 +316,19 @@ document.addEventListener('mousemove', (event) => {
 	if (document.pointerLockElement === renderer.domElement) {
 		dx = event.movementX;
 		dy = event.movementY;
+		mouseMoved = true;
+	}
+});
+document.addEventListener('wheel', (event) => {
+	const carToCamDir = new THREE.Vector3().subVectors(camera.position, playerCubes[myID].position).normalize();
+	raycaster.set(playerCubes[myID].position, carToCamDir);
+	const hitGround = raycaster.intersectObject(ground, true);
+	camEuler.y += dx / 300;
+	const distance = playerCubes[myID].position.distanceTo(lookTarget);
+	if (zoom >= 0 && zoom < distance && !(event.deltaY < 0 && hitGround.length > 0)) {
+		zoom -= event.deltaY / 200
+	} else if (zoom < 0) {
+		zoom = 0
 	}
 });
 //end stuff
