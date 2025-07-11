@@ -29,10 +29,18 @@ let ground;
 const connections = [];
 let scene, camera, renderer;
 let camEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+let crosshairEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const raycaster = new THREE.Raycaster();
 let lookTarget = new THREE.Vector3();
+let crosshairLookTarget = new THREE.Vector3();
 let zoom = 0;
+let availableTurrets = [];
+let rolling = false;
+let arsenals = [];
+let bullets = [];
+let mouseDown = false;
 let cameraLocked = false;
+let crosshair;
 const playerCubes = {};
 function random(min, max) {
 	return Math.random() * (max - min) + min;
@@ -51,13 +59,73 @@ function makeTree(x, y) {
 				tree.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), random(0, (2 * Math.PI)));
 				const scale = random(0.2, 0.4);
 				tree.scale.set(scale, scale, scale);
-				tree.position.y = 7 * scale;
+				tree.position.y = (7 - 1.2) * scale;
 				resolve(tree);
 			},
 			undefined,
 			(error) => reject(error)
 		);
 	});
+}
+function loadIt(url) {
+	return new Promise((resolve, reject) => {
+		const loader = new GLTFLoader();
+		loader.load(
+			url,
+			(gltf) => {
+				const obj = gltf.scene;
+				resolve(obj);
+			},
+			undefined,
+			(error) => reject(error)
+		);
+	});
+}
+async function makeTurret() {
+	const top = await loadIt('turret_top.glb');
+	const bottom = await loadIt('turret_bottom.glb');
+
+	bottom.add(top); // Key fix: top becomes a child of bottom
+
+	const turret = {
+		top,
+		bottom,
+		off: 0.4,
+		cooldown: 500,
+		last: Date.now(),
+		rotation: {
+			x: 0,
+			y: 0,
+		},
+		position: new THREE.Vector3(),
+		updateSystem: function () {
+			this.bottom.rotation.y = this.rotation.y; // Yaw on bottom
+			this.top.rotation.x = this.rotation.x;    // Pitch on top (local relative to bottom)
+
+			this.bottom.position.copy(this.position);
+			this.top.position.set(0, 0.6, 0); // local offset from bottom
+		},
+		addToScene: function () {
+			scene.add(this.bottom); // Only need to add bottom now
+		}
+	};
+
+	return turret;
+}
+function spawnBullet(position, directionVector) {
+	const geo = new THREE.SphereGeometry(0.1, 16, 16);
+	const mat = new THREE.MeshBasicMaterial( { color: 0xFFA500 } );
+	const mesh = new THREE.Mesh(geo, mat);
+	mesh.position.copy(position);
+	scene.add(mesh);
+	const bullet = {
+		direction: directionVector,
+		mesh: mesh,
+		move: function () {
+			this.mesh.position.add(this.direction.clone().multiplyScalar(2 + random(0, 0.5)));
+		}
+	}
+	return bullet;
 }
 function makeVehicle() {
 	return new Promise((resolve, reject) => {
@@ -76,10 +144,45 @@ function makeVehicle() {
 		);
 	});
 }
+function make3DCrosshair(radius = 0.5, lineLength = 0.2) {
+	const crosshairGroup = new THREE.Group();
+
+	// Create the ring (torus or circle)
+	const ringGeometry = new THREE.RingGeometry(radius - 0.02, radius + 0.02, 32);
+	const ringMaterial = new THREE.MeshBasicMaterial({
+		color: 0xff0000,
+		side: THREE.DoubleSide
+	});
+	const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+	crosshairGroup.add(ring);
+
+	// Function to create line from (0,0) to (x,y)
+	const createLine = (x1, y1, x2, y2) => {
+		const points = [
+			new THREE.Vector3(x1, y1, 0),
+			new THREE.Vector3(x2, y2, 0),
+		];
+		const geometry = new THREE.BufferGeometry().setFromPoints(points);
+		const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+		return new THREE.Line(geometry, material);
+	};
+
+	// Add up/down/left/right lines
+	crosshairGroup.add(createLine(0, radius, 0, radius + lineLength)); // Up
+	crosshairGroup.add(createLine(0, -radius, 0, -radius - lineLength)); // Down
+	crosshairGroup.add(createLine(-radius, 0, -radius - lineLength, 0)); // Left
+	crosshairGroup.add(createLine(radius, 0, radius + lineLength, 0)); // Right
+
+	return crosshairGroup;
+}
 async function init3d() {
 	scene = new THREE.Scene();
 	scene.background = new THREE.Color(0x87ceeb);
 	camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+	crosshair = make3DCrosshair(0.25);
+	crosshair.scale.set(0.5, 0.5, 0.5);
+	crosshair.position.set(10, 10, 10);
+	scene.add(crosshair);
 	renderer = new THREE.WebGLRenderer();
 	renderer.setSize(window.innerWidth, window.innerHeight);
 	document.body.appendChild(renderer.domElement);
@@ -104,13 +207,56 @@ async function init3d() {
 		const tree = await makeTree(treex, treey);
 		scene.add(tree);
 	}
+	const turret = await makeTurret();
+	arsenals.push(turret);
+	availableTurrets.push(turret);
+	turret.addToScene();
+	turret.position.set(10, -1.7, 10);
 	animate();
+}
+function shortestAngleDelta(a, b) {
+	let delta = b - a;
+	delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+	return delta;
 }
 function animate() {
 	requestAnimationFrame(animate);
 	const myCube = playerCubes[myID];
 	if (myCube) {
+		arsenals.forEach(turret => {
+			turret.position.copy(myCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
+			const turretdx = crosshairLookTarget.x - turret.position.x;
+			const turretdz = crosshairLookTarget.z - turret.position.z;
+			turret.rotation.y = Math.atan2(turretdx, turretdz);
+			const turretTopPos = new THREE.Vector3();
+			turret.top.getWorldPosition(turretTopPos);
+			const turretdy = crosshairLookTarget.y - turretTopPos.y;
+			const horizontalDist = Math.sqrt(turretdx * turretdx + turretdz * turretdz);
+			turret.rotation.x = -Math.atan2(turretdy, horizontalDist);
+			turret.updateSystem();
+		});
+		if (mouseDown) {
+			availableTurrets.forEach( turret => {
+				if (Date.now() >= turret.cooldown + turret.last) {
+					const off = new THREE.Vector3(turret.off, 0, 0).applyQuaternion(turret.bottom.quaternion);
+					const bullet = spawnBullet(turret.position.clone().add(new THREE.Vector3(0, 0.6, 0).add(off)), turret.top.getWorldDirection(new THREE.Vector3()));
+					turret.last = Date.now();
+					turret.off *= -1;
+					bullets.push(bullet);
+				}
+			});
+		}
+		bullets.forEach(bullet => {
+			bullet.move();
+			if (camera.position.distanceTo(bullet.mesh.position) > 100) {
+				scene.remove(bullet.mesh);
+				bullet.mesh.geometry?.dispose();
+				bullet.mesh.material?.dispose();
+				bullets = bullets.filter(item => item !== bullet);
+			}
+		});
 		document.getElementById('loading').style.display = 'none';
+		const zoomdist = camera.position.distanceTo(lookTarget);
 		const move = new THREE.Vector3(0, 0, mySpeed);
 		move.applyQuaternion(myCube.quaternion);
 		myCube.position.add(move);
@@ -147,10 +293,33 @@ function animate() {
 		const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
 		const rayOrigin = camera.position.clone();
 		const rayDirection = forward.clone().normalize();
+		const lerpFactor = 0.05;
+		crosshairEuler.x += shortestAngleDelta(crosshairEuler.x, camEuler.x) * lerpFactor;
+		crosshairEuler.y += shortestAngleDelta(crosshairEuler.y, camEuler.y) * lerpFactor;
+		const crosshairQuat = new THREE.Quaternion().setFromEuler(crosshairEuler);
+		const CrossOff = new THREE.Vector3(0, 4, 2 + zoom).applyQuaternion(crosshairQuat);
+		crosshair.position.copy(myCube.position.clone().add(CrossOff));
+		crosshair.lookAt(camera.position);
+		const crosshairForward = new THREE.Vector3(0, 0, 1).applyQuaternion(crosshairQuat);
+		crosshairForward.normalize()
+		raycaster.set(crosshair.position.clone(), crosshairForward);
+		const CrosshairExclude = new Set();
+		myCube.traverse(obj => CrosshairExclude.add(obj));
+		CrosshairExclude.add(crosshair);
+		const CrosshairHitList = raycaster.intersectObjects(
+			scene.children.filter(obj => !CrosshairExclude.has(obj)),
+			true
+		);
+		if (CrosshairHitList.length > 0) {
+			crosshairLookTarget.copy(CrosshairHitList[0].point);
+		} else {
+			crosshairLookTarget.copy(crosshair.position.clone().add(crosshairForward.multiplyScalar(100)));
+		}
 		if (mouseMoved) {
 			raycaster.set(rayOrigin, rayDirection);
 			const excludeMyCube = new Set();
 			myCube.traverse(obj => excludeMyCube.add(obj));
+			excludeMyCube.add(crosshair);
 			const hitList = raycaster.intersectObjects(
 				scene.children.filter(obj => !excludeMyCube.has(obj)),
 				true
@@ -319,17 +488,19 @@ document.addEventListener('mousemove', (event) => {
 		mouseMoved = true;
 	}
 });
-document.addEventListener('wheel', (event) => {
-	const carToCamDir = new THREE.Vector3().subVectors(camera.position, playerCubes[myID].position).normalize();
-	raycaster.set(playerCubes[myID].position, carToCamDir);
-	const hitGround = raycaster.intersectObject(ground, true);
-	camEuler.y += dx / 300;
-	const distance = playerCubes[myID].position.distanceTo(lookTarget);
-	if (zoom >= 0 && zoom < distance && !(event.deltaY < 0 && hitGround.length > 0)) {
-		zoom -= event.deltaY / 200
-	} else if (zoom < 0) {
-		zoom = 0
+document.addEventListener('mousedown', (event) => {
+	if (event.button === 0) {
+		mouseDown = true;
 	}
+});
+document.addEventListener('mouseup', (event) => {
+	if (event.button === 0) {
+		mouseDown = false;
+	}
+});
+document.addEventListener('wheel', (event) => {
+	zoom -= event.deltaY / 200;
+	zoom = Math.max(0, Math.min(20, zoom)); // clamp between 0 and 20
 });
 //end stuff
 const loadingPlayers = new Set();
