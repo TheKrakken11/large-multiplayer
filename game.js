@@ -9,294 +9,531 @@ import {
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
-await new Promise((res, rej) => {
-  const s = document.createElement('script');
-  s.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
-  s.onload = res; s.onerror = rej;
-  document.body.appendChild(s);
+await new Promise((resolve, reject) => {
+	const script = document.createElement('script');
+	script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
+	script.onload = resolve;
+	script.onerror = reject;
+	document.body.appendChild(script);
 });
 
-let peer, conn, isHost = false;
+let peer;
+let conn;
+let isHost = false;
 let myID = null;
+let mySpeed = 0;
+let dx = 0, dy = 0;
+let mouseMoved = false;
 const players = {};
-const remoteBullets = {};
-const bulletSpawnQueue = [];
-
-let scene, camera, renderer;
 let ground;
-let camEuler = new THREE.Euler(0,0,0,'YXZ');
-let crosshairEuler = new THREE.Euler(0,0,0,'YXZ');
+const connections = [];
+let scene, camera, renderer;
+let camEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+let crosshairEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const raycaster = new THREE.Raycaster();
 let lookTarget = new THREE.Vector3();
 let crosshairLookTarget = new THREE.Vector3();
-let zoom = 0, mySpeed = 0, mouseDown = false, mouseMoved = false;
-let dx=0, dy=0;
+let zoom = 0;
+let availableTurrets = [];
+let rolling = false;
+let arsenals = [];
+let bullets = [];
+let mouseDown = false;
+let cameraLocked = false;
+let crosshair;
 const playerCubes = {};
-const myTurretBySelf = null;
-
-function random(min,max){ return Math.random()*(max-min)+min; }
-function randomInt(min,max){ return Math.floor(random(min,max)); }
-function shortestAngleDelta(a,b){
-  const d=b-a;
-  return Math.atan2(Math.sin(d), Math.cos(d));
+function random(min, max) {
+	return Math.random() * (max - min) + min;
 }
-async function loadIt(url){
-  const loader = new GLTFLoader();
-  const gltf = await new Promise((res,rej)=>
-    loader.load(url, r=>res(r),undefined,err=>rej(err))
-  );
-  return gltf.scene;
+function randomInt(min, max) {
+	return Math.floor(random(min, max));
 }
-async function makeTurret(){
-  const top = await loadIt('turret_top.glb');
-  const bottom = await loadIt('turret_bottom.glb');
-  bottom.add(top);
-  const turret = {
-    top, bottom,
-    off: 0.4,
-    cooldown: 500,
-    last: 0,
-    rotation:{x:0,y:0},
-    position: new THREE.Vector3(),
-    updateSystem(){
-      this.bottom.rotation.y = this.rotation.y;
-      this.top.rotation.x = this.rotation.x;
-      this.bottom.position.copy(this.position);
-      this.top.position.set(0,0.6,0);
-    },
-    addToScene(){ scene.add(this.bottom); }
-  };
-  return turret;
+function makeTree(x, y) {
+	return new Promise((resolve, reject) => {
+		const loader = new GLTFLoader();
+		loader.load(
+			'Tree.glb',
+			(gltf) => {
+				const tree = gltf.scene;
+				tree.position.set(x, 0, y);
+				tree.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), random(0, (2 * Math.PI)));
+				const scale = random(0.2, 0.4);
+				tree.scale.set(scale, scale, scale);
+				tree.position.y = (7 - 1.2) * scale;
+				resolve(tree);
+			},
+			undefined,
+			(error) => reject(error)
+		);
+	});
 }
-function spawnBullet(pos, dir){
-  const geo=new THREE.SphereGeometry(0.1,16,16);
-  const mat=new THREE.MeshBasicMaterial({color:0xffa500});
-  const mesh=new THREE.Mesh(geo,mat);
-  mesh.position.copy(pos);
-  scene.add(mesh);
-  const bulletAz={ direction: dir.clone(), mesh };
-  bulletSpawnQueue.push({
-    id: `${myID}_${Date.now()}_${Math.random()}`,
-    x: pos.x, y: pos.y, z: pos.z,
-    dx: dir.x, dy: dir.y, dz: dir.z
-  });
-  return bulletAz;
+function loadIt(url) {
+	return new Promise((resolve, reject) => {
+		const loader = new GLTFLoader();
+		loader.load(
+			url,
+			(gltf) => {
+				const obj = gltf.scene;
+				resolve(obj);
+			},
+			undefined,
+			(error) => reject(error)
+		);
+	});
 }
-function make3DCrosshair(r, ll){
-  const g=new THREE.Group();
-  const ring=new THREE.Mesh(
-    new THREE.RingGeometry(r-0.02, r+0.02, 32),
-    new THREE.MeshBasicMaterial({color:0xff0000, side: THREE.DoubleSide})
-  );
-  g.add(ring);
-  const makeLine=(x1,y1,x2,y2)=>{
-    const pts=[new THREE.Vector3(x1,y1,0), new THREE.Vector3(x2,y2,0)];
-    const geo=new THREE.BufferGeometry().setFromPoints(pts);
-    return new THREE.Line(geo, new THREE.LineBasicMaterial({color:0xff0000}));
-  };
-  g.add(makeLine(0,r,0,r+ll));
-  g.add(makeLine(0,-r,0,-r-ll));
-  g.add(makeLine(-r,0,-r-ll,0));
-  g.add(makeLine(r,0,r+ll,0));
-  return g;
+async function makeTurret() {
+	const top = await loadIt('turret_top.glb');
+	const bottom = await loadIt('turret_bottom.glb');
+
+	bottom.add(top); // Key fix: top becomes a child of bottom
+
+	const turret = {
+		top,
+		bottom,
+		off: 0.4,
+		cooldown: 500,
+		last: Date.now(),
+		rotation: {
+			x: 0,
+			y: 0,
+		},
+		position: new THREE.Vector3(),
+		updateSystem: function () {
+			this.bottom.rotation.y = this.rotation.y; // Yaw on bottom
+			this.top.rotation.x = this.rotation.x;    // Pitch on top (local relative to bottom)
+
+			this.bottom.position.copy(this.position);
+			this.top.position.set(0, 0.6, 0); // local offset from bottom
+		},
+		addToScene: function () {
+			scene.add(this.bottom); // Only need to add bottom now
+		}
+	};
+
+	return turret;
 }
-
-let myTurret, bullets = [];
-
-async function init3d(){
-  scene=new THREE.Scene();
-  scene.background=new THREE.Color(0x87ceeb);
-  camera=new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1,1000);
-  const cross = make3DCrosshair(0.25,0.2);
-  cross.scale.set(0.5,0.5,0.5);
-  scene.add(cross);
-  renderer=new THREE.WebGLRenderer();
-  renderer.setSize(window.innerWidth,window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-  scene.add(new THREE.DirectionalLight(0xffffff,1));
-  scene.add(new THREE.AmbientLight(0x404040,10));
-  ground=new THREE.Mesh(new THREE.PlaneGeometry(100000,100000),
-                       new THREE.MeshStandardMaterial({color:0x228B22,metalness:0.2,roughness:0.8}));
-  ground.rotation.x=-Math.PI/2; ground.position.y=-1.7;
-  scene.add(ground);
-  for(let i=0;i<150;i++){
-    const t=await loadIt('Tree.glb');
-    t.position.set(randomInt(-250,250),0,randomInt(-250,250));
-    t.rotation.y=random(0,Math.PI*2);
-    const s=random(0.2,0.4);
-    t.scale.set(s,s,s);
-    t.position.y=(7-1.2)*s;
-    scene.add(t);
-  }
-  myTurret=await makeTurret();
-  myTurret.addToScene();
-  bullets = [];
-  animate();
+function spawnBullet(position, directionVector) {
+	const geo = new THREE.SphereGeometry(0.1, 16, 16);
+	const mat = new THREE.MeshBasicMaterial( { color: 0xFFA500 } );
+	const mesh = new THREE.Mesh(geo, mat);
+	mesh.position.copy(position);
+	scene.add(mesh);
+	const bullet = {
+		direction: directionVector,
+		mesh: mesh,
+		move: function () {
+			this.mesh.position.add(this.direction.clone().multiplyScalar(2 + random(0, 0.5)));
+		}
+	}
+	return bullet;
 }
-
-function animate(){
-  requestAnimationFrame(animate);
-  const me = playerCubes[myID];
-  if(me){
-    // turret aiming using crosshairLookTarget
-    const tx = crosshairLookTarget.x - me.position.x;
-    const tz = crosshairLookTarget.z - me.position.z;
-    myTurret.rotation.y = Math.atan2(tx, tz);
-    const twPos=new THREE.Vector3();
-    myTurret.top.getWorldPosition(twPos);
-    const ty = crosshairLookTarget.y - twPos.y;
-    const horiz=Math.sqrt(tx*tx + tz*tz);
-    myTurret.rotation.x = -Math.atan2(ty, horiz);
-    myTurret.position.copy(me.position.clone().add(new THREE.Vector3(0,1,-1)));
-    myTurret.updateSystem();
-
-    if(mouseDown && Date.now() >= myTurret.last + myTurret.cooldown){
-      const off = new THREE.Vector3(myTurret.off,0,0)
-                    .applyQuaternion(myTurret.bottom.quaternion);
-      const b = spawnBullet(myTurret.position.clone().add(new THREE.Vector3(0,0.6,0).add(off)),
-                            myTurret.top.getWorldDirection(new THREE.Vector3()));
-      bullets.push(b);
-      myTurret.last = Date.now();
-      myTurret.off *= -1;
-    }
-
-    bullets.forEach((b,i)=>{
-      b.mesh.position.add(b.direction.clone().multiplyScalar(2));
-      if(camera.position.distanceTo(b.mesh.position)>100){
-        scene.remove(b.mesh);
-        b.mesh.geometry.dispose();
-        b.mesh.material.dispose();
-        bullets.splice(i,1);
-      }
-    });
-  }
-
-  // move remote bullets
-  for(const id in remoteBullets){
-    const rb = remoteBullets[id];
-    rb.mesh.position.add(rb.direction.clone().multiplyScalar(2));
-    if(camera.position.distanceTo(rb.mesh.position)>100){
-      scene.remove(rb.mesh);
-      delete remoteBullets[id];
-    }
-  }
-
-  // camera & crosshair logic...
-  // (unchanged from your current code)
-
-  renderer.render(scene,camera);
+function makeVehicle() {
+	return new Promise((resolve, reject) => {
+		const loader = new GLTFLoader();
+		loader.load(
+			'roller.glb',
+			(gltf) => {
+				const vehicle = gltf.scene;
+				vehicle.scale.set(1, 1, 1);
+				resolve(vehicle);
+			},
+			undefined,
+			(error) => {
+				reject(error)
+			}
+		);
+	});
 }
+function make3DCrosshair(radius = 0.5, lineLength = 0.2) {
+	const crosshairGroup = new THREE.Group();
 
-function startGame(){
+	// Create the ring (torus or circle)
+	const ringGeometry = new THREE.RingGeometry(radius - 0.02, radius + 0.02, 32);
+	const ringMaterial = new THREE.MeshBasicMaterial({
+		color: 0xff0000,
+		side: THREE.DoubleSide
+	});
+	const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+	crosshairGroup.add(ring);
+
+	// Function to create line from (0,0) to (x,y)
+	const createLine = (x1, y1, x2, y2) => {
+		const points = [
+			new THREE.Vector3(x1, y1, 0),
+			new THREE.Vector3(x2, y2, 0),
+		];
+		const geometry = new THREE.BufferGeometry().setFromPoints(points);
+		const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+		return new THREE.Line(geometry, material);
+	};
+
+	// Add up/down/left/right lines
+	crosshairGroup.add(createLine(0, radius, 0, radius + lineLength)); // Up
+	crosshairGroup.add(createLine(0, -radius, 0, -radius - lineLength)); // Down
+	crosshairGroup.add(createLine(-radius, 0, -radius - lineLength, 0)); // Left
+	crosshairGroup.add(createLine(radius, 0, radius + lineLength, 0)); // Right
+
+	return crosshairGroup;
+}
+async function init3d() {
+	scene = new THREE.Scene();
+	scene.background = new THREE.Color(0x87ceeb);
+	camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+	crosshair = make3DCrosshair(0.25);
+	crosshair.scale.set(0.5, 0.5, 0.5);
+	crosshair.position.set(10, 10, 10);
+	scene.add(crosshair);
+	renderer = new THREE.WebGLRenderer();
+	renderer.setSize(window.innerWidth, window.innerHeight);
+	document.body.appendChild(renderer.domElement);
+	const light = new THREE.DirectionalLight(0xffffff, 1);
+	light.position.set(10, 10, 10);
+	scene.add(light);
+	const ambientLight = new THREE.AmbientLight(0x404040, 10);
+	scene.add(ambientLight);
+	const geopl = new THREE.PlaneGeometry(100000, 100000);
+	const mat = new THREE.MeshStandardMaterial({
+		color: 0x228B22,
+		metalness: 0.2,
+		roughness: 0.8
+	});
+	ground = new THREE.Mesh(geopl, mat);
+	ground.rotation.x = -Math.PI / 2
+	ground.position.y = -1.7
+	scene.add(ground);
+	for (let i = 0; i < 150; i++) {
+		const treex = randomInt(-250, 250);
+		const treey = randomInt(-250, 250);
+		const tree = await makeTree(treex, treey);
+		scene.add(tree);
+	}
+	const turret = await makeTurret();
+	arsenals.push(turret);
+	availableTurrets.push(turret);
+	turret.addToScene();
+	turret.position.set(10, -1.7, 10);
+	animate();
+}
+function shortestAngleDelta(a, b) {
+	let delta = b - a;
+	delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+	return delta;
+}
+function animate() {
+	requestAnimationFrame(animate);
+	const myCube = playerCubes[myID];
+	if (myCube) {
+		arsenals.forEach(turret => {
+			turret.position.copy(myCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
+			const turretdx = crosshairLookTarget.x - turret.position.x;
+			const turretdz = crosshairLookTarget.z - turret.position.z;
+			turret.rotation.y = Math.atan2(turretdx, turretdz);
+			const turretTopPos = new THREE.Vector3();
+			turret.top.getWorldPosition(turretTopPos);
+			const turretdy = crosshairLookTarget.y - turretTopPos.y;
+			const horizontalDist = Math.sqrt(turretdx * turretdx + turretdz * turretdz);
+			turret.rotation.x = -Math.atan2(turretdy, horizontalDist);
+			turret.updateSystem();
+		});
+		if (mouseDown) {
+			availableTurrets.forEach( turret => {
+				if (Date.now() >= turret.cooldown + turret.last) {
+					const off = new THREE.Vector3(turret.off, 0, 0).applyQuaternion(turret.bottom.quaternion);
+					const bullet = spawnBullet(turret.position.clone().add(new THREE.Vector3(0, 0.6, 0).add(off)), turret.top.getWorldDirection(new THREE.Vector3()));
+					turret.last = Date.now();
+					turret.off *= -1;
+					bullets.push(bullet);
+				}
+			});
+		}
+		bullets.forEach(bullet => {
+			bullet.move();
+			if (camera.position.distanceTo(bullet.mesh.position) > 100) {
+				scene.remove(bullet.mesh);
+				bullet.mesh.geometry?.dispose();
+				bullet.mesh.material?.dispose();
+				bullets = bullets.filter(item => item !== bullet);
+			}
+		});
+		document.getElementById('loading').style.display = 'none';
+		const zoomdist = camera.position.distanceTo(lookTarget);
+		const move = new THREE.Vector3(0, 0, mySpeed);
+		move.applyQuaternion(myCube.quaternion);
+		myCube.position.add(move);
+		if (isHost) {
+			players[myID].x = myCube.position.x;
+			players[myID].z = myCube.position.z;
+			players[myID].angle = myCube.rotation.y;
+		}
+		// Update camera orientation
+		// Update camera orientation
+		if (mouseMoved) {
+			const carToCamDir = new THREE.Vector3().subVectors(camera.position, myCube.position).normalize();
+			raycaster.set(myCube.position, carToCamDir);
+			const hitGround = raycaster.intersectObject(ground, true);
+			camEuler.y += dx / 300;
+			if (hitGround.length === 0 || dy > 0) {
+				camEuler.x += dy / 300;
+			}
+			// Clamp pitch to prevent flipping
+			const pitchLimit = Math.PI / 2 - 0.1;
+			camEuler.x = Math.max(-pitchLimit, Math.min(pitchLimit, camEuler.x));
+		} else {
+			const distancex = lookTarget.x - myCube.position.x;
+			const distancez = lookTarget.z - myCube.position.z;
+			const angle = Math.atan2(distancex, distancez);
+			camEuler.y = angle
+		}
+		const quaternion = new THREE.Quaternion().setFromEuler(camEuler)
+		// Camera offset behind and slightly above the player
+		const camOffset = new THREE.Vector3(0, 4, -8 + zoom).applyQuaternion(quaternion);
+		camera.position.copy(myCube.position.clone().add(camOffset));
+		// Calculate forward direction
+		// Calculate forward direction
+		const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(quaternion);
+		const rayOrigin = camera.position.clone();
+		const rayDirection = forward.clone().normalize();
+		const lerpFactor = 0.05;
+		crosshairEuler.x += shortestAngleDelta(crosshairEuler.x, camEuler.x) * lerpFactor;
+		crosshairEuler.y += shortestAngleDelta(crosshairEuler.y, camEuler.y) * lerpFactor;
+		const crosshairQuat = new THREE.Quaternion().setFromEuler(crosshairEuler);
+		const CrossOff = new THREE.Vector3(0, 4, 2 + zoom).applyQuaternion(crosshairQuat);
+		crosshair.position.copy(myCube.position.clone().add(CrossOff));
+		crosshair.lookAt(camera.position);
+		const crosshairForward = new THREE.Vector3(0, 0, 1).applyQuaternion(crosshairQuat);
+		crosshairForward.normalize()
+		raycaster.set(crosshair.position.clone(), crosshairForward);
+		const CrosshairExclude = new Set();
+		myCube.traverse(obj => CrosshairExclude.add(obj));
+		CrosshairExclude.add(crosshair);
+		const CrosshairHitList = raycaster.intersectObjects(
+			scene.children.filter(obj => !CrosshairExclude.has(obj)),
+			true
+		);
+		if (CrosshairHitList.length > 0) {
+			crosshairLookTarget.copy(CrosshairHitList[0].point);
+		} else {
+			crosshairLookTarget.copy(crosshair.position.clone().add(crosshairForward.multiplyScalar(100)));
+		}
+		if (mouseMoved) {
+			raycaster.set(rayOrigin, rayDirection);
+			const excludeMyCube = new Set();
+			myCube.traverse(obj => excludeMyCube.add(obj));
+			excludeMyCube.add(crosshair);
+			const hitList = raycaster.intersectObjects(
+				scene.children.filter(obj => !excludeMyCube.has(obj)),
+				true
+			);
+			if (hitList.length > 0) {
+				lookTarget.copy(hitList[0].point);
+			} else {
+				lookTarget.copy(rayOrigin.clone().add(rayDirection.multiplyScalar(100)));
+			}
+			mouseMoved = false;
+		}
+		camera.lookAt(lookTarget);
+		// Reset mouse deltas
+		dx = 0;
+		dy = 0;
+	} else {
+		document.getElementById('loading').style.display = 'none';
+	}
+	renderer.render(scene, camera);
+}
+function startGame() {
   peer = new Peer();
-  peer.on('open', id => { myID = id; tryJoinAsClient(id); });
-  peer.on('error', err => {});
+
+  peer.on('open', (id) => {
+	myID = id;
+    tryJoinAsClient(id);
+  });
+
+  peer.on('error', (err) => {});
   init3d();
 }
 
-function tryJoinAsClient(id){
-  const c = peer.connect('host');
-  c.on('open', () => { conn = c; setupClientNetworking(); });
-  c.on('error', () => { becomeHost(id); });
-  setTimeout(() => { if(!conn || !conn.open) becomeHost(id); },2000);
+function tryJoinAsClient(myId) {
+  const tryConn = peer.connect("host");
+
+  tryConn.on("open", () => {
+    conn = tryConn;
+    setupClientNetworking();
+  });
+
+  tryConn.on("error", () => {
+    becomeHost(myId);
+  });
+
+  setTimeout(() => {
+    if (!conn || !conn.open) {
+      becomeHost(myId);
+    }
+  }, 2000);
 }
 
-function becomeHost(id){
+function becomeHost(myId) {
   isHost = true;
-  peer = new Peer('host');
-  peer.on('open', () => {
-    players[id] = createInitialPlayer();
-    updateWorld(players);
+  peer = new Peer("host");
+
+  peer.on("open", async () => {
+    players[myId] = createInitialPlayer();
+    await updateWorld(players);
+    console.log("My cube is:", playerCubes[myId]);
   });
-  peer.on('connection', cl => {
-    players[cl.peer] = createInitialPlayer();
-    cl.on('data', data => {
-      players[cl.peer] = {...players[cl.peer], ...data};
-      if(data.bullets){
-        data.bullets.forEach(b=>{
-          if(!remoteBullets[b.id]){
-            const geo=new THREE.SphereGeometry(0.1,8,8);
-            const mat=new THREE.MeshBasicMaterial({color:0x00ff00});
-            const mesh=new THREE.Mesh(geo,mat);
-            mesh.position.set(b.x,b.y,b.z);
-            scene.add(mesh);
-            remoteBullets[b.id]={mesh,direction:new THREE.Vector3(b.dx,b.dy,b.dz)};
-          }
-        });
+
+  peer.on("connection", (clientConn) => {
+    connections.push(clientConn);
+    players[clientConn.peer] = createInitialPlayer();
+
+    clientConn.on("data", (data) => {
+      if (players[clientConn.peer]) {
+        players[clientConn.peer] = {
+          ...players[clientConn.peer],
+          ...data
+          // MERGE CLIENT FIELDS — already works as-is
+          // e.g. isFiring, weapon, score are merged here
+        };
       }
     });
-    cl.on('close',()=>delete players[cl.peer]);
+
+    clientConn.on("close", () => {
+      delete players[clientConn.peer];
+    });
   });
 
-  setInterval(()=>{
-    const state = {type:'state', players};
-    connections.forEach(c => c.open && c.send(state));
-    updateWorld(players);
-  },50);
-}
-
-function setupClientNetworking(){
-  connections.push(conn);
-  setInterval(()=>{
-    const myCube = playerCubes[myID];
-    if(!myCube) return;
-    const data = {
-      x: myCube.position.x,
-      z: myCube.position.z,
-      angle: myCube.rotation.y,
-      bullets: bulletSpawnQueue.slice()
+  setInterval(async () => {
+    const state = {
+      type: "state",
+      players,
+      // GLOBAL SHARED FIELDS (optional)
+      // gameTime: Date.now() - startTime,
+      // powerups: globalPowerups
     };
-    conn.send(data);
-    bulletSpawnQueue.length = 0;
-  },50);
+    connections.forEach((c) => {
+      if (c.open) c.send(state);
+    });
+    await updateWorld(players);
+  }, 50);
+}
+function setupClientNetworking() {
+	setInterval(() => {
+		const myCube = playerCubes[myID];
+		if (!myCube) return;
 
-  conn.on('data', d => {
-    if(d.type==='state'){
-      updateWorld(d.players);
+		const myData = {
+			x: myCube.position.x,
+			z: myCube.position.z,
+			angle: myCube.rotation.y,
+			// SEND NEW FIELDS TO HOST
+			// isFiring: Math.random() > 0.9,         
+			// Example: randomly fire ⬆️ 
+		};
+
+		conn.send(myData);
+	}, 50);
+
+  conn.on("data", (data) => {
+    if (data.type === "state") {
+      updateWorld(data.players);
+      // GLOBAL FIELDS (optional)
+      // e.g. show timer: console.log("Time:", data.gameTime);
     }
   });
 }
 
-function createInitialPlayer(){
-  return {x:Math.random()*20, z:Math.random()*20, angle:0, bullets:{}};
+function createInitialPlayer() {
+  return {
+    x: Math.random() * 20,
+    z: Math.random() * 20,
+    angle: 0,
+    hp: 100,
+    // INITIAL STATE FOR NEW FIELDS
+    // weapon: "cannon",
+    // isFiring: false,
+    // score: 0
+  };
 }
+//add stuff here
+document.addEventListener('keydown', event => {
+	if (event.key === 'w') {
+		if (mySpeed < 0.125) {
+			mySpeed += 0.05
+		}
+	} else if (event.key === 's') {
+		if (mySpeed > -0.1) {
+			mySpeed -= 0.05
+		}
+	} else if (event.key === 'a') {
+		playerCubes[myID].rotation.y += 0.01
+	} else if (event.key === 'd') {
+		playerCubes[myID].rotation.y -= 0.01
+	} else if (event.key === 'q') {
+		renderer.domElement.requestPointerLock();
+		document.getElementById('qcheck').style.display = 'none';
+	}
+});
+//pointer lock
 
-async function updateWorld(playersState){
-  for(const id in playersState){
-    if(!playerCubes[id]){
-      const cube=await loadIt('roller.glb');
+document.addEventListener('pointerlockchange', () => {
+	if (document.pointerLockElement === renderer.domElement) {
+		console.log("pointer locked")
+	} else {
+		console.log("pointer unlocked")
+	}
+});
+document.addEventListener('mousemove', (event) => {
+	if (document.pointerLockElement === renderer.domElement) {
+		dx = event.movementX;
+		dy = event.movementY;
+		mouseMoved = true;
+	}
+});
+document.addEventListener('mousedown', (event) => {
+	if (event.button === 0) {
+		mouseDown = true;
+	}
+});
+document.addEventListener('mouseup', (event) => {
+	if (event.button === 0) {
+		mouseDown = false;
+	}
+});
+document.addEventListener('wheel', (event) => {
+	zoom -= event.deltaY / 200;
+	zoom = Math.max(0, Math.min(20, zoom)); // clamp between 0 and 20
+});
+//end stuff
+const loadingPlayers = new Set();
+
+async function updateWorld(playersState) {
+  for (const id in playersState) {
+	const p = playersState[id];
+    if (!playerCubes[id] && !loadingPlayers.has(id)) {
+      loadingPlayers.add(id);
+      const cube = await makeVehicle();
       scene.add(cube);
-      playerCubes[id]=cube;
+      playerCubes[id] = cube;
+      loadingPlayers.delete(id);
     }
-    const p = playersState[id];
     const cube = playerCubes[id];
-    if(id !== myID){
+
+    if (id === myID) {
+		continue
+    } else {
+      // Interpolate for others
       cube.position.lerp(new THREE.Vector3(p.x, 0, p.z), 0.1);
-      cube.rotation.y += shortestAngleDelta(cube.rotation.y, p.angle)*0.1;
+      const currentAngle = cube.rotation.y;
+      const targetAngle = p.angle;
+      const angleDiff = targetAngle - currentAngle;
+      cube.rotation.y = currentAngle + angleDiff * 0.1;
     }
   }
-  for(const id in playerCubes){
-    if(!playersState[id]){
+
+  for (const id in playerCubes) {
+    if (!playersState[id]) {
       scene.remove(playerCubes[id]);
       delete playerCubes[id];
     }
   }
 }
-
-document.addEventListener('keydown', e=>{
-  if(e.key==='w') mySpeed = Math.min(mySpeed+0.05, 0.125);
-  if(e.key==='s') mySpeed = Math.max(mySpeed-0.05, -0.1);
-});
-document.addEventListener('mousemove', e=>{
-  if(document.pointerLockElement === renderer.domElement){
-    dx = e.movementX; dy = e.movementY;
-    mouseMoved = true;
-  }
-});
-document.addEventListener('mousedown', e=>{ if(e.button===0) mouseDown = true; });
-document.addEventListener('mouseup', e=>{ if(e.button===0) mouseDown = false; });
-document.addEventListener('wheel', e=>{
-  zoom = Math.max(0, Math.min(20, zoom - e.deltaY/200));
-});
-document.addEventListener('pointerlockchange', ()=>{});
-startGame();
+startGame()
