@@ -25,6 +25,7 @@ let mySpeed = 0;
 let dx = 0, dy = 0;
 let mouseMoved = false;
 const players = {};
+const loadingTurrets = new Set();
 let ground;
 const connections = [];
 let scene, camera, renderer;
@@ -35,13 +36,15 @@ let lookTarget = new THREE.Vector3();
 let crosshairLookTarget = new THREE.Vector3();
 let zoom = 0;
 let availableTurrets = [];
+const syncedTurrets = {};
 let rolling = false;
-let arsenals = [];
+let arsenals = {};
 let bullets = [];
 let mouseDown = false;
 let cameraLocked = false;
 let crosshair;
 const playerCubes = {};
+const seenBulletIds = new Set();
 function random(min, max) {
 	return Math.random() * (max - min) + min;
 }
@@ -112,13 +115,14 @@ async function makeTurret() {
 
 	return turret;
 }
-function spawnBullet(position, directionVector) {
+function spawnBullet(position, directionVector, id = null) {
 	const geo = new THREE.SphereGeometry(0.1, 16, 16);
 	const mat = new THREE.MeshBasicMaterial( { color: 0xFFA500 } );
 	const mesh = new THREE.Mesh(geo, mat);
 	mesh.position.copy(position);
 	scene.add(mesh);
 	const bullet = {
+		id: id || `${myID}_${Date.now()}`,
 		direction: directionVector,
 		mesh: mesh,
 		move: function () {
@@ -207,11 +211,6 @@ async function init3d() {
 		const tree = await makeTree(treex, treey);
 		scene.add(tree);
 	}
-	const turret = await makeTurret();
-	arsenals.push(turret);
-	availableTurrets.push(turret);
-	turret.addToScene();
-	turret.position.set(10, -1.7, 10);
 	animate();
 }
 function shortestAngleDelta(a, b) {
@@ -223,32 +222,78 @@ function animate() {
 	requestAnimationFrame(animate);
 	const myCube = playerCubes[myID];
 	if (myCube) {
-		arsenals.forEach(turret => {
-			turret.position.copy(myCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
-			const turretdx = crosshairLookTarget.x - turret.position.x;
-			const turretdz = crosshairLookTarget.z - turret.position.z;
-			turret.rotation.y = Math.atan2(turretdx, turretdz);
-			const turretTopPos = new THREE.Vector3();
-			turret.top.getWorldPosition(turretTopPos);
-			const turretdy = crosshairLookTarget.y - turretTopPos.y;
-			const horizontalDist = Math.sqrt(turretdx * turretdx + turretdz * turretdz);
-			turret.rotation.x = -Math.atan2(turretdy, horizontalDist);
-			turret.updateSystem();
-		});
+		const turret = arsenals[myID];
+		availableTurrets = turret ? [turret] : [];
+		for (const id in arsenals) {
+			const turret = arsenals[id];
+			const playerCube = playerCubes[id];
+			if (!playerCube) continue;
+	
+			// Always update turret position based on its player's cube
+			turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
+
+			if (id === myID) {
+				// Local player turret: aim based on crosshair
+				const turretdx = crosshairLookTarget.x - turret.position.x;
+				const turretdz = crosshairLookTarget.z - turret.position.z;
+				turret.rotation.y = Math.atan2(turretdx, turretdz);
+
+				const turretTopPos = new THREE.Vector3();
+				turret.top.getWorldPosition(turretTopPos);
+				const turretdy = crosshairLookTarget.y - turretTopPos.y;
+				const horizontalDist = Math.sqrt(turretdx * turretdx + turretdz * turretdz);
+				turret.rotation.x = -Math.atan2(turretdy, horizontalDist);
+
+				// Sync host's local turret to others
+				if (isHost) {
+				syncedTurrets[myID] = {
+					position: turret.position.toArray(),
+					rotation: { x: turret.rotation.x, y: turret.rotation.y }
+					};
+				}
+			}
+
+			turret.updateSystem(); // ✅ Always update visuals
+		}
 		if (mouseDown) {
 			availableTurrets.forEach( turret => {
 				if (Date.now() >= turret.cooldown + turret.last) {
 					const off = new THREE.Vector3(turret.off, 0, 0).applyQuaternion(turret.bottom.quaternion);
-					const bullet = spawnBullet(turret.position.clone().add(new THREE.Vector3(0, 0.6, 0).add(off)), turret.top.getWorldDirection(new THREE.Vector3()));
+					const position = turret.position.clone().add(new THREE.Vector3(0, 0.6, 0).add(off));
+					const direction = turret.top.getWorldDirection(new THREE.Vector3());
+					const bulletId = `${myID}_${Date.now()}`;
+					
+					const bullet = spawnBullet(position, direction, bulletId);
 					turret.last = Date.now();
 					turret.off *= -1;
 					bullets.push(bullet);
+					
+					seenBulletIds.add(bulletId);
+					if (!isHost && conn?.open) {
+						conn.send({
+							type: "fire",
+							id: bulletId,
+							position: position.toArray(),
+							direction: direction.toArray()
+						});
+					}
+					if (isHost) {
+						connections.forEach(c => {
+							if (c.open) c.send({
+								type: "bulletFired",
+								id: bulletId,
+								playerId: myID,
+								position: position.toArray(),
+								direction: direction.toArray()
+							});
+						});
+					}
 				}
 			});
 		}
 		bullets.forEach(bullet => {
 			bullet.move();
-			if (camera.position.distanceTo(bullet.mesh.position) > 100) {
+			if (camera.position.distanceTo(bullet.mesh.position) > 500) {
 				scene.remove(bullet.mesh);
 				bullet.mesh.geometry?.dispose();
 				bullet.mesh.material?.dispose();
@@ -386,14 +431,38 @@ function becomeHost(myId) {
     players[clientConn.peer] = createInitialPlayer();
 
     clientConn.on("data", (data) => {
-      if (players[clientConn.peer]) {
-        players[clientConn.peer] = {
-          ...players[clientConn.peer],
-          ...data
-          // MERGE CLIENT FIELDS — already works as-is
-          // e.g. isFiring, weapon, score are merged here
-        };
-      }
+		if (data.type === "fire") {
+			const bulletId = data.id;
+			if (seenBulletIds.has(bulletId)) return;
+			seenBulletIds.add(bulletId);
+			const pos = new THREE.Vector3().fromArray(data.position);
+			const dir = new THREE.Vector3().fromArray(data.direction);
+			const bullet = spawnBullet(pos, dir, bulletId);
+			bullets.push(bullet)
+			const fireMsg = {
+				type: "bulletFired",
+				id: bulletId,
+				playerId: clientConn.peer,
+				position: data.position,
+				direction: data.direction
+			};
+			connections.forEach(c => {
+				if (c.open) c.send(fireMsg);
+			});
+			return;
+		}
+		if (players[clientConn.peer]) {
+			players[clientConn.peer] = {
+				...players[clientConn.peer],
+				...data
+			};
+			if (data.turretRotation && arsenals[clientConn.peer]) {
+				const turret = arsenals[clientConn.peer];
+				turret.rotation.x = data.turretRotation.x;
+				turret.rotation.y = data.turretRotation.y;
+				turret.updateSystem();
+			}
+		}
     });
 
     clientConn.on("close", () => {
@@ -405,6 +474,12 @@ function becomeHost(myId) {
     const state = {
       type: "state",
       players,
+      turrets: Object.fromEntries(
+		Object.entries(arsenals).map(([id, turret]) => [id, {
+			position: turret.position.toArray(),
+			rotation: { x: turret.rotation.x, y: turret.rotation.y }
+		}])
+	)
       // GLOBAL SHARED FIELDS (optional)
       // gameTime: Date.now() - startTime,
       // powerups: globalPowerups
@@ -418,12 +493,17 @@ function becomeHost(myId) {
 function setupClientNetworking() {
 	setInterval(() => {
 		const myCube = playerCubes[myID];
-		if (!myCube) return;
+		const myTurret = arsenals[myID];
+		if (!myCube || !myTurret) return;
 
 		const myData = {
 			x: myCube.position.x,
 			z: myCube.position.z,
 			angle: myCube.rotation.y,
+			turretRotation: {
+				x: myTurret.rotation.x,
+				y: myTurret.rotation.y
+			}
 			// SEND NEW FIELDS TO HOST
 			// isFiring: Math.random() > 0.9,         
 			// Example: randomly fire ⬆️ 
@@ -435,8 +515,27 @@ function setupClientNetworking() {
   conn.on("data", (data) => {
     if (data.type === "state") {
       updateWorld(data.players);
+      if (data.turrets) {
+		  for (const id in data.turrets) {
+			  const turretData = data.turrets[id];
+			  const turret = arsenals[id];
+			  if (!turret || id === myID) continue;
+			  turret.position.fromArray(turretData.position);
+			  turret.rotation.x = turretData.rotation.x;
+			  turret.rotation.y = turretData.rotation.y;
+			  turret.updateSystem();
+		  }
+	  }
       // GLOBAL FIELDS (optional)
       // e.g. show timer: console.log("Time:", data.gameTime);
+	}
+	if (data.type === "bulletFired") {
+		if (seenBulletIds.has(data.id)) return;
+		seenBulletIds.add(data.id);
+		const pos = new THREE.Vector3().fromArray(data.position);
+		const dir = new THREE.Vector3().fromArray(data.direction);
+		const bullet = spawnBullet(pos, dir, data.id);
+		bullets.push(bullet);
     }
   });
 }
@@ -515,6 +614,14 @@ async function updateWorld(playersState) {
       playerCubes[id] = cube;
       loadingPlayers.delete(id);
     }
+    if (!arsenals[id] && playerCubes[id] && !loadingTurrets.has(id)) {
+		loadingTurrets.add(id);
+		const turret = await makeTurret();
+		turret.loyalty = id;
+		turret.addToScene();
+		arsenals[id] = turret;
+		loadingTurrets.delete(id);
+	}
     const cube = playerCubes[id];
 
     if (id === myID) {
@@ -530,10 +637,33 @@ async function updateWorld(playersState) {
   }
 
   for (const id in playerCubes) {
-    if (!playersState[id]) {
+    if (!playersState[id] && id !== myID) {
       scene.remove(playerCubes[id]);
       delete playerCubes[id];
+      const turret = arsenals[id];
+      if (turret) {
+		  scene.remove(turret.bottom);
+		  turret.bottom.traverse(obj => {
+			  if (obj.geometry) obj.geometry.dispose();
+			  if (obj.material) obj.material.dispose();
+		  });
+		  delete arsenals[id];
+	  }
     }
   }
+  for (let i = 0; i < arsenals.length; i++) {
+	const turret = arsenals[i];
+	if (turret.loyalty !== myID && playersState[turret.loyalty]) {
+		const playerCube = playerCubes[turret.loyalty];
+		if (playerCube) {
+			turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
+			turret.updateSystem();
+		}
+	}
+  }
+
 }
-startGame()
+startGame();
+setInterval(() => {
+	if (seenBulletIds.size > 1000) seenBulletIds.clear();
+}, 60000);
