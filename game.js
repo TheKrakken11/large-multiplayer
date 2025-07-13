@@ -127,6 +127,12 @@ function spawnBullet(position, directionVector, id = null) {
 		mesh: mesh,
 		move: function () {
 			this.mesh.position.add(this.direction.clone().multiplyScalar(2 + random(0, 0.5)));
+		},
+		testHit: function () {
+			raycaster.set(this.mesh.position, this.direction);
+			const nearestHit = raycaster.intersectObjects(scene.children, true)[0];
+			if (nearestHit.distance <= 2) return true;
+			return false;
 		}
 	}
 	return bullet;
@@ -228,11 +234,9 @@ function animate() {
 			const turret = arsenals[id];
 			const playerCube = playerCubes[id];
 			if (!playerCube) continue;
-	
-			// Always update turret position based on its player's cube
-			turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
 
 			if (id === myID) {
+				turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, -1).applyQuaternion(playerCube.quaternion)));
 				// Local player turret: aim based on crosshair
 				const turretdx = crosshairLookTarget.x - turret.position.x;
 				const turretdz = crosshairLookTarget.z - turret.position.z;
@@ -460,6 +464,10 @@ function becomeHost(myId) {
 				const turret = arsenals[clientConn.peer];
 				turret.rotation.x = data.turretRotation.x;
 				turret.rotation.y = data.turretRotation.y;
+				if (data.turretPosition) {
+					const target = new THREE.Vector3().fromArray(data.turretPosition);
+					turret.position.lerp(target, 0.1);
+				}
 				turret.updateSystem();
 			}
 		}
@@ -503,7 +511,8 @@ function setupClientNetworking() {
 			turretRotation: {
 				x: myTurret.rotation.x,
 				y: myTurret.rotation.y
-			}
+			},
+			turretPosition: myTurret.position.toArray()
 			// SEND NEW FIELDS TO HOST
 			// isFiring: Math.random() > 0.9,         
 			// Example: randomly fire ⬆️ 
@@ -515,17 +524,33 @@ function setupClientNetworking() {
   conn.on("data", (data) => {
     if (data.type === "state") {
       updateWorld(data.players);
-      if (data.turrets) {
-		  for (const id in data.turrets) {
-			  const turretData = data.turrets[id];
-			  const turret = arsenals[id];
-			  if (!turret || id === myID) continue;
-			  turret.position.fromArray(turretData.position);
-			  turret.rotation.x = turretData.rotation.x;
-			  turret.rotation.y = turretData.rotation.y;
-			  turret.updateSystem();
-		  }
-	  }
+		if (data.turrets) {
+			for (const id in data.turrets) {
+				if (id === myID) continue;
+
+				const turretData = data.turrets[id];
+				const turret = arsenals[id];
+				if (!turret) continue;
+
+				// LERP position
+				const targetPos = new THREE.Vector3().fromArray(turretData.position);
+				turret.position.lerp(targetPos, 0.1); // tweak the factor as needed
+
+				// LERP yaw (rotation.y on bottom)
+				const currentYaw = turret.rotation.y;
+				const targetYaw = turretData.rotation.y;
+				const yawDelta = shortestAngleDelta(currentYaw, targetYaw);
+				turret.rotation.y = currentYaw + yawDelta * 0.1;
+
+				// LERP pitch (rotation.x on top)
+				const currentPitch = turret.rotation.x;
+				const targetPitch = turretData.rotation.x;
+				const pitchDelta = shortestAngleDelta(currentPitch, targetPitch);
+				turret.rotation.x = currentPitch + pitchDelta * 0.1;
+
+				turret.updateSystem();
+			}
+		}
       // GLOBAL FIELDS (optional)
       // e.g. show timer: console.log("Time:", data.gameTime);
 	}
@@ -629,6 +654,7 @@ async function updateWorld(playersState) {
     } else {
       // Interpolate for others
       cube.position.lerp(new THREE.Vector3(p.x, 0, p.z), 0.1);
+      const turret = arsenals[id];
       const currentAngle = cube.rotation.y;
       const targetAngle = p.angle;
       const angleDiff = targetAngle - currentAngle;
@@ -650,16 +676,6 @@ async function updateWorld(playersState) {
 		  delete arsenals[id];
 	  }
     }
-  }
-  for (let i = 0; i < arsenals.length; i++) {
-	const turret = arsenals[i];
-	if (turret.loyalty !== myID && playersState[turret.loyalty]) {
-		const playerCube = playerCubes[turret.loyalty];
-		if (playerCube) {
-			turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, -1)));
-			turret.updateSystem();
-		}
-	}
   }
 
 }
