@@ -344,11 +344,11 @@ function animate() {
 			const hitId = getHitId(bullet);
 			if (isHost) {
 				if (hitId) {
+					const firedId = bullet.firedId;
 					if (players[hitId].hp > 0) {
 						players[firedId].coins += 10;
 					}
 					players[hitId].hp = Math.max(players[hitId].hp - 5, 0);
-					const firedId = bullet.firedId;
 				}
 			}
 			
