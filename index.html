@@ -30,6 +30,27 @@
 			z-index: 9999;
 		}
 
+		#health-bar {
+			height: 100%;
+			width: 100%;
+			background: linear-gradient(90deg, #0ebc01, #89ff75);
+			transition: width 0.3s;
+			border-radius: 8px;
+		}
+
+		#health-bar-container {
+			position: fixed;
+			left: 10px;
+			top: 10px;
+			width: 220px;
+			height: 32px;
+			background: rgba(0,0,0,0.4);
+			border-radius: 8px;
+			box-sizing: border-box;
+			display: flex;
+			align-items: center;
+		}
+
 		#loading {
 			color: black;
 			pointer-events: none;
@@ -60,6 +81,10 @@
 	<div id="qcheck">
 		<p>Press Q to lock mouse pointer and begin game</p>
 		<p>Note: Your vehicle may take time to appear</p>
+	</div>
+	
+	<div id="health-bar-container">
+		<div id="health-bar"></div>
 	</div>
 	
 	<script type="module" src="game.js"></script>
