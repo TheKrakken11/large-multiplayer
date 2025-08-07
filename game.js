@@ -116,7 +116,7 @@ async function makeTurret() {
 
 	return turret;
 }
-function spawnBullet(position, directionVector, id = null) {
+function spawnBullet(position, directionVector, id = null, firedId = null) {
 	const geo = new THREE.SphereGeometry(0.1, 16, 16);
 	const mat = new THREE.MeshBasicMaterial( { color: 0xFFA500 } );
 	const mesh = new THREE.Mesh(geo, mat);
@@ -124,6 +124,7 @@ function spawnBullet(position, directionVector, id = null) {
 	scene.add(mesh);
 	const bullet = {
 		id: id || `${myID}_${Date.now()}`,
+		firedId: firedId || myID,
 		direction: directionVector,
 		mesh: mesh,
 		testHit: function () {
@@ -311,7 +312,7 @@ function animate() {
 					const direction = turret.top.getWorldDirection(new THREE.Vector3());
 					const bulletId = `${myID}_${Date.now()}`;
 					
-					const bullet = spawnBullet(position, direction, bulletId);
+					const bullet = spawnBullet(position, direction, bulletId, myID);
 					turret.last = Date.now();
 					turret.off *= -1;
 					bullets.push(bullet);
@@ -340,12 +341,15 @@ function animate() {
 			});
 		}
 		bullets.forEach(bullet => {
+			const hitId = getHitId(bullet);
 			if (isHost) {
-				const hitId = getHitId(bullet);
 				if (hitId) {
-					players[hitId].hp = Math.max(players[hitId].hp - 10, 0);
+					players[hitId].hp = Math.max(players[hitId].hp - 5, 0);
+					const firedId = bullet.firedId;
+					players[firedId].coins += 10;
 				}
 			}
+			
 			bullet.move();
 			if (camera.position.distanceTo(bullet.mesh.position) > 500) {
 				scene.remove(bullet.mesh);
@@ -499,7 +503,7 @@ function becomeHost(myId) {
 			seenBulletIds.add(bulletId);
 			const pos = new THREE.Vector3().fromArray(data.position);
 			const dir = new THREE.Vector3().fromArray(data.direction);
-			const bullet = spawnBullet(pos, dir, bulletId);
+			const bullet = spawnBullet(pos, dir, bulletId, clientConn.peer);
 			bullets.push(bullet)
 			const fireMsg = {
 				type: "bulletFired",
@@ -628,7 +632,7 @@ function setupClientNetworking() {
 		seenBulletIds.add(data.id);
 		const pos = new THREE.Vector3().fromArray(data.position);
 		const dir = new THREE.Vector3().fromArray(data.direction);
-		const bullet = spawnBullet(pos, dir, data.id);
+		const bullet = spawnBullet(pos, dir, data.id, data.playerId);
 		bullets.push(bullet);
     }
   });
@@ -640,6 +644,7 @@ function createInitialPlayer() {
     z: Math.random() * 20,
     angle: 0,
     hp: 100,
+	coins: 0
     // INITIAL STATE FOR NEW FIELDS
     // weapon: "cannon",
     // isFiring: false,
