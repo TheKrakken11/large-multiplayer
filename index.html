@@ -38,6 +38,33 @@
 			border-radius: 8px;
 		}
 
+		#coin-ui {
+			position: absolute;
+			top: 20px;
+			left: 20px;
+			display: flex;
+			align-items: center;
+			background-color: rgba(255, 255, 255, 0.85);
+			padding: 6px 10px;
+			border-radius: 8px;
+			font-family: Arial, sans-serif;
+			font-size: 18px;
+			z-index: 1000;
+		}
+		.coin-icon {
+			width: 24px;
+			height: 24px;
+			background-color: gold;
+			color: black;
+			font-weight: bold;
+			border-radius: 50%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			margin-right: 8px;
+			box-shadow: 0 0 4px rgba(0,0,0,0.3);
+		}
+
 		#health-bar-container {
 			position: fixed;
 			left: 10px;
@@ -82,7 +109,12 @@
 		<p>Press Q to lock mouse pointer and begin game</p>
 		<p>Note: Your vehicle may take time to appear</p>
 	</div>
-	
+
+	<div id="coin-ui">
+		<div class="coin-icon">C</div>
+		<span id="coin-count">0</span>
+	</div>
+
 	<div id="health-bar-container">
 		<div id="health-bar"></div>
 	</div>
