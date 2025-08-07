@@ -367,6 +367,7 @@ function animate() {
 			hpBar.scale.set(2, 2, 2);
 		} 
 		setHealth(players[myID].hp);
+		document.getElementById('coin-count').textContent = players[myID].coins;
 		document.getElementById('loading').style.display = 'none';
 		const zoomdist = camera.position.distanceTo(lookTarget);
 		const move = new THREE.Vector3(0, 0, mySpeed);
