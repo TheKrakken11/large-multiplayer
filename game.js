@@ -176,6 +176,10 @@ function getHitId(bullet) {
 		}
 	}
 }
+function setHealth(percent) {
+	const healthBar = document.getElementById('health-bar');
+	healthBar.style.width = percent + '%';
+}
 function makeVehicle() {
 	return new Promise((resolve, reject) => {
 		const loader = new GLTFLoader();
@@ -358,6 +362,7 @@ function animate() {
 			hpBar.front.position.set(-0.5 + hp / 2, 0, 0);
 			hpBar.scale.set(2, 2, 2);
 		} 
+		setHealth(players[myID].hp);
 		document.getElementById('loading').style.display = 'none';
 		const zoomdist = camera.position.distanceTo(lookTarget);
 		const move = new THREE.Vector3(0, 0, mySpeed);
