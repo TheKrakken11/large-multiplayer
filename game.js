@@ -43,6 +43,7 @@ let bullets = [];
 let mouseDown = false;
 let cameraLocked = false;
 let crosshair;
+let mySlots = 1
 const playerCubes = {};
 const hpbars = {};
 const seenBulletIds = new Set();
@@ -85,7 +86,7 @@ function loadIt(url) {
 		);
 	});
 }
-async function makeTurret() {
+async function makeTurret(slot = -1) {
 	const top = await loadIt('turret_top.glb');
 	const bottom = await loadIt('turret_bottom.glb');
 
@@ -96,6 +97,7 @@ async function makeTurret() {
 		bottom,
 		off: 0.4,
 		cooldown: 500,
+		slot: slot,
 		last: Date.now(),
 		rotation: {
 			x: 0,
@@ -303,8 +305,8 @@ function animate() {
 			if (!playerCube) continue;
 			const turrets = arsenals[id];
 			turrets.forEach(turret => {
-					if (id === myID) {
-					turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, -1).applyQuaternion(playerCube.quaternion)));
+				if (id === myID) {
+					turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, turret.slot).applyQuaternion(playerCube.quaternion)));
 					// Local player turret: aim based on crosshair
 					const turretdx = crosshairLookTarget.x - turret.position.x;
 					const turretdz = crosshairLookTarget.z - turret.position.z;
