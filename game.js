@@ -116,6 +116,30 @@ async function makeTurret() {
 
 	return turret;
 }
+async function addTurretToPlayer(playerId) {
+	if (!arsenals[playerId]) arsenals[playerId] = [];
+
+	const turret = await makeTurret();
+	turret.loyalty = playerId;
+	turret.addToScene();
+	arsenals[playerId].push(turret);
+
+	// Broadcast to others if host
+	if (isHost) {
+		connections.forEach(c => {
+			if (c.open) c.send({
+				type: "addTurret",
+				playerId: playerId
+			});
+		});
+	}
+	// Request from host if client and adding turret to self
+	else if (playerId === myID && conn?.open) {
+		conn.send({
+			type: "requestTurret"
+		});
+	}
+}
 function spawnBullet(position, directionVector, id = null, firedId = null) {
 	const geo = new THREE.SphereGeometry(0.1, 16, 16);
 	const mat = new THREE.MeshBasicMaterial( { color: 0xFFA500 } );
@@ -520,6 +544,10 @@ function becomeHost(myId) {
 			});
 			return;
 		}
+		if (data.type === "requestTurret") {
+			const requesterId = clientConn.peer;
+			addTurretToPlayer(requesterId); // Host will add and broadcast
+		}
 		if (players[clientConn.peer]) {
 			players[clientConn.peer] = {
 				...players[clientConn.peer],
@@ -629,6 +657,15 @@ function setupClientNetworking() {
 		}
       // GLOBAL FIELDS (optional)
       // e.g. show timer: console.log("Time:", data.gameTime);
+	}
+	if (data.type === "addTurret") {
+		const id = data.playerId;
+		if (!arsenals[id]) arsenals[id] = [];
+		makeTurret().then(turret => {
+			turret.loyalty = id;
+			turret.addToScene();
+			arsenals[id].push(turret);
+		});
 	}
 	if (data.type === "bulletFired") {
 		if (seenBulletIds.has(data.id)) return;
