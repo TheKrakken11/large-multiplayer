@@ -714,6 +714,7 @@ document.addEventListener('keydown', event => {
 		if (mySlots > 0) {
 			mySlots -= 1;
 			addTurretToPlayer(myID, -mySlots);
+			console.log("Slot value:", -mySlots);
 		}
 	}
 });
