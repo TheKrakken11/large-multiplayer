@@ -553,6 +553,11 @@ function becomeHost(myId) {
 			const requesterId = clientConn.peer;
 			addTurretToPlayer(requesterId); // Host will add and broadcast
 		}
+		if (data.type === "setShopStatus") {
+  			if (players[clientConn.peer]) {
+    			players[clientConn.peer].inShop = !!data.inShop;
+  			}
+		}
 		if (players[clientConn.peer]) {
 			players[clientConn.peer] = {
 				...players[clientConn.peer],
@@ -689,7 +694,8 @@ function createInitialPlayer() {
     z: Math.random() * 20,
     angle: 0,
     hp: 100,
-	coins: 0
+	coins: 0,
+	inShop: false
     // INITIAL STATE FOR NEW FIELDS
     // weapon: "cannon",
     // isFiring: false,
