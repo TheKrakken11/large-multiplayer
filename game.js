@@ -371,10 +371,13 @@ function animate() {
 			if (isHost) {
 				if (hitId) {
 					const firedId = bullet.firedId;
-					if (players[hitId].hp > 0) {
-						players[firedId].coins += 10;
+					if (firedId !== hitId) {
+						if (players[hitId].hp > 0) {
+							players[firedId].coins += 10;
+						}
+						players[hitId].hp = Math.max(players[hitId].hp - 5, 0);
+				
 					}
-					players[hitId].hp = Math.max(players[hitId].hp - 5, 0);
 				}
 			}
 			
@@ -711,8 +714,8 @@ document.addEventListener('keydown', event => {
 		renderer.domElement.requestPointerLock();
 		document.getElementById('qcheck').style.display = 'none';
 	} else if (event.key === 't') {
-		if (mySlots > -0.5) {
-			mySlots -= 1.5;
+		if (mySlots > -1.5) {
+			mySlots -= 2.5;
 			addTurretToPlayer(myID, -mySlots);
 			console.log("Slot value:", -mySlots);
 		}
