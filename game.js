@@ -157,7 +157,7 @@ function spawnBullet(position, directionVector, id = null, firedId = null) {
 			raycaster.set(this.mesh.position, this.direction);
 			const nearestHit = raycaster.intersectObjects(scene.children, true)[0];
 			if (nearestHit) {
-				if (getHitId(nearestHit.object) && players[getHitId(nearestHit.object)].inShop) {
+				if (getHitId(this) && players[getHitId(this)].inShop) {
 					return [false];
 				}
 				if (nearestHit.distance <= 2) return [true, nearestHit.object];
