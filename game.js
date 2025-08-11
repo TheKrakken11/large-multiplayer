@@ -118,10 +118,10 @@ async function makeTurret(slot = -1) {
 
 	return turret;
 }
-async function addTurretToPlayer(playerId) {
+async function addTurretToPlayer(playerId, slot = -1) {
 	if (!arsenals[playerId]) arsenals[playerId] = [];
 
-	const turret = await makeTurret();
+	const turret = await makeTurret(slot);
 	turret.loyalty = playerId;
 	turret.addToScene();
 	arsenals[playerId].push(turret);
@@ -710,6 +710,11 @@ document.addEventListener('keydown', event => {
 	} else if (event.key === 'q') {
 		renderer.domElement.requestPointerLock();
 		document.getElementById('qcheck').style.display = 'none';
+	} else if (event.key === 't') {
+		if (mySlots < 0) {
+			mySlots += 1;
+			addTurretToPlayer(myID, mySlots);
+		}
 	}
 });
 //pointer lock
