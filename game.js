@@ -157,7 +157,7 @@ function spawnBullet(position, directionVector, id = null, firedId = null) {
 			raycaster.set(this.mesh.position, this.direction);
 			const nearestHit = raycaster.intersectObjects(scene.children, true)[0];
 			if (nearestHit) {
-				if (getHitId(this) && players[getHitId(this)].inShop) {
+				if (getId(nearestHit.object) && players[getId(nearestHit.object)].inShop) {
 					return [false];
 				}
 				if (nearestHit.distance <= 2) return [true, nearestHit.object];
@@ -176,6 +176,31 @@ function spawnBullet(position, directionVector, id = null, firedId = null) {
 		}
 	}
 	return bullet;
+}
+function getId(obj) {
+	for (const id in playerCubes) {
+		const vehicle = playerCubes[id];
+		if (vehicle === obj || vehicle.children.includes(obj)) {
+			return id;
+		}
+		let found = false;
+		vehicle.traverse(object => {
+			if (object === obj) found = true;
+		});
+		if (found) return id;
+	}
+	for (const id in arsenals) {
+		for (const turret of arsenals[id]) {
+			let found = false;
+			turret.bottom.traverse(o => {
+				if (o === obj) found = true;
+			});
+			turret.top.traverse(o => {
+				if (o === obj) found = true;
+			});
+			if (found) return id;
+		}
+	}
 }
 function getHitId(bullet) {
 	const bulletHit = bullet.testHit();
