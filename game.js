@@ -714,8 +714,8 @@ document.addEventListener('keydown', event => {
 		renderer.domElement.requestPointerLock();
 		document.getElementById('qcheck').style.display = 'none';
 	} else if (event.key === 't') {
-		if (mySlots > -1.5) {
-			mySlots -= 2.5;
+		if (mySlots > -1) {
+			mySlots -= 2;
 			addTurretToPlayer(myID, -mySlots);
 			console.log("Slot value:", -mySlots);
 		}
