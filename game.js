@@ -711,9 +711,9 @@ document.addEventListener('keydown', event => {
 		renderer.domElement.requestPointerLock();
 		document.getElementById('qcheck').style.display = 'none';
 	} else if (event.key === 't') {
-		if (mySlots < 0) {
-			mySlots += 1;
-			addTurretToPlayer(myID, mySlots);
+		if (mySlots > 0) {
+			mySlots -= 1;
+			addTurretToPlayer(myID, -mySlots);
 		}
 	}
 });
