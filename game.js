@@ -713,12 +713,21 @@ document.addEventListener('keydown', event => {
 	} else if (event.key === 'q') {
 		renderer.domElement.requestPointerLock();
 		document.getElementById('qcheck').style.display = 'none';
-	} else if (event.key === 't') {
-		if (mySlots > -1) {
-			mySlots -= 2;
-			addTurretToPlayer(myID, -mySlots);
-			console.log("Slot value:", -mySlots);
-		}
+	} else if (event.key === 'e') {
+  		const shopUI = document.getElementById('shop-ui');
+  		const isOpen = shopUI.style.display === 'block';
+  
+  		shopUI.style.display = isOpen ? 'none' : 'block';
+
+  		if (conn?.open) {
+    		conn.send({
+      			type: "setShopStatus",
+      			inShop: !isOpen
+    		});
+  		}
+
+  		// Optional: Escape pointer lock while in shop
+  		if (!isOpen) document.exitPointerLock();
 	}
 });
 //pointer lock
