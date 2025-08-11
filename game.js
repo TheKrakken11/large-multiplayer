@@ -157,6 +157,9 @@ function spawnBullet(position, directionVector, id = null, firedId = null) {
 			raycaster.set(this.mesh.position, this.direction);
 			const nearestHit = raycaster.intersectObjects(scene.children, true)[0];
 			if (nearestHit) {
+				if (getHitId(nearestHit.object) && players[getHitId(nearestHit.object)].inShop) {
+					return [false];
+				}
 				if (nearestHit.distance <= 2) return [true, nearestHit.object];
 			}
 			return [false];
@@ -330,7 +333,7 @@ function animate() {
 				turret.updateSystem(); // ✅ Always update visuals
 			});
 		}
-		if (mouseDown) {
+		if (mouseDown && !players[myID].inShop) {
 			availableTurrets.forEach( turret => {
 				if (Date.now() >= turret.cooldown + turret.last) {
 					const off = new THREE.Vector3(turret.off, 0, 0.5).applyQuaternion(turret.top.getWorldQuaternion(new THREE.Quaternion()));
@@ -716,7 +719,7 @@ document.addEventListener('keydown', event => {
 		playerCubes[myID].rotation.y += 0.01
 	} else if (event.key === 'd') {
 		playerCubes[myID].rotation.y -= 0.01
-	} else if (event.key === 'q') {
+	} else if (event.key === 'q' && !players[myID].inShop) {
 		renderer.domElement.requestPointerLock();
 		document.getElementById('qcheck').style.display = 'none';
 	} else if (event.key === 'e') {
