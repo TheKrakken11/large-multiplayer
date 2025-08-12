@@ -764,6 +764,10 @@ document.addEventListener('keydown', event => {
 
   		// Optional: Escape pointer lock while in shop
   		if (!isOpen) document.exitPointerLock();
+		if (isOpen) {
+			renderer.domElement.requestPointerLock();
+			document.getElementById('qcheck').style.display = 'none';
+		}
 	}
 });
 //pointer lock
