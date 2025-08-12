@@ -202,6 +202,32 @@ function getId(obj) {
 		}
 	}
 }
+function setPlayerTransparency(playerId, opacity = 0.3) {
+	if (playerCubes[playerId]) {
+		playerCubes[playerId].traverse(obj => {
+			if (obj.isMesh) {
+				obj.material.transparent = true;
+				obj.material.opacity = opacity;
+			}
+		});
+	}
+	if (arsenals[playerId]) {
+		for (const turret of arsenals[playerId]) {
+			turret.bottom.traverse(obj => {
+				if (obj.isMesh) {
+					obj.material.transparent = true;
+					obj.material.opacity = opacity;
+				}
+			});
+			turret.top.traverse(obj => {
+				if (obj.isMesh) {
+					obj.material.transparent = true;
+					obj.material.opacity = opacity;
+				}
+			});
+		}
+	}
+}
 function getHitId(bullet) {
 	const bulletHit = bullet.testHit();
 	if (bulletHit[0]) {
@@ -426,6 +452,14 @@ function animate() {
 			hpBar.scale.set(2, 2, 2);
 		} 
 		setHealth(players[myID].hp);
+		for (const id in players) {
+			const player = players[id];
+			if (player.inShop) {
+				setPlayerTransparency(id)
+			} else {
+				setPlayerTransparency(id, 1.0)
+			}
+		}
 		document.getElementById('coin-count').textContent = players[myID].coins;
 		document.getElementById('loading').style.display = 'none';
 		const zoomdist = camera.position.distanceTo(lookTarget);
