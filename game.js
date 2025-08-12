@@ -753,6 +753,8 @@ document.addEventListener('keydown', event => {
   
   		shopUI.style.display = isOpen ? 'none' : 'block';
 
+		players[myID].inShop = !isOpen;
+		
   		if (conn?.open) {
     		conn.send({
       			type: "setShopStatus",
