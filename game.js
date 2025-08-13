@@ -620,6 +620,11 @@ function becomeHost(myId) {
     			players[clientConn.peer].inShop = !!data.inShop;
   			}
 		}
+		if (data.type === "new coins") {
+			if (players[clientConn.peer]) {
+				players[clientConn.peer].coins = data.coins
+			}
+		}
 		if (players[clientConn.peer]) {
 			players[clientConn.peer] = {
 				...players[clientConn.peer],
@@ -833,6 +838,23 @@ document.addEventListener('mouseup', (event) => {
 document.addEventListener('wheel', (event) => {
 	zoom -= event.deltaY / 200;
 	zoom = Math.max(0, Math.min(20, zoom)); // clamp between 0 and 20
+});
+
+document.getElementById('buy-turret').addEventListener('click', function () {
+	if (players[myID] && players[myID].coins >= 150 && mySlots > -1) {
+		if (isHost) {
+			players[myID].coins -= 150;
+		} else {
+			if (conn?.open) {
+				conn.send({
+					type: "new coins",
+					coins: players[myID].coins - 150
+				});
+			}
+		}
+		mySlots -= 2;
+		addTurretToPlayer(myID, -mySlots);
+	}
 });
 //end stuff
 const loadingPlayers = new Set();
