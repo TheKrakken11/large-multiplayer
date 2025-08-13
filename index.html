@@ -109,6 +109,22 @@
 		<p>Press Q to lock mouse pointer and begin game</p>
 		<p>Note: Your vehicle may take time to appear</p>
 	</div>
+	<button onclick="document.getElementById('creditsModal').style.display='block'" style="
+		position: fixed;
+		bottom: 10%;
+		right: 10%;
+	">
+		View Credits
+	</button>
+	<div id="creditsModal">
+		<div id="creditsContent">
+			<span id="closeCredits" onclick="document.getElementById('creditsModal').style.display='none'">&times;</span>
+			<h2>Credits</h2>
+			<p>3D Graphics by Three.js</p>
+			<p>Networking by Peer.js</p>
+			<p>Tree by Zsky [CC-BY] (https://creativecommons.org/licenses/by/3.0/) via Poly Pizza (https://poly.pizza/m/uxSb2WTPU4)</p>
+		</div>
+	</div>	
 	<div id="shop-ui" style="
   			display: none;
   			position: fixed;
