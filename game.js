@@ -119,28 +119,28 @@ async function makeTurret(slot = -1) {
 	return turret;
 }
 async function addTurretToPlayer(playerId, slot = -1) {
-	if (!arsenals[playerId]) arsenals[playerId] = [];
+    if (!arsenals[playerId]) arsenals[playerId] = [];
 
-	const turret = await makeTurret(slot);
-	turret.loyalty = playerId;
-	turret.addToScene();
-	arsenals[playerId].push(turret);
+    if (isHost) {
+        const turret = await makeTurret(slot);
+        turret.loyalty = playerId;
+        turret.addToScene();
+        arsenals[playerId].push(turret);
 
-	// Broadcast to others if host
-	if (isHost) {
-		connections.forEach(c => {
-			if (c.open) c.send({
-				type: "addTurret",
-				playerId: playerId
-			});
-		});
-	}
-	// Request from host if client and adding turret to self
-	else if (playerId === myID && conn?.open) {
-		conn.send({
-			type: "requestTurret"
-		});
-	}
+        // Broadcast to others
+        connections.forEach(c => {
+            if (c.open) c.send({
+                type: "addTurret",
+                playerId: playerId,
+                slot: slot
+            });
+        });
+    } else if (playerId === myID && conn?.open) {
+        // Clients just request turret creation, don't create locally
+        conn.send({
+            type: "requestTurret"
+        });
+    }
 }
 function spawnBullet(position, directionVector, id = null, firedId = null) {
 	const geo = new THREE.SphereGeometry(0.1, 16, 16);
