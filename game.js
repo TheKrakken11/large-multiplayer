@@ -429,9 +429,9 @@ function animate() {
 					const firedId = bullet.firedId;
 					if (firedId !== hitId) {
 						if (players[hitId].hp > 0) {
-							players[firedId].coins += randomInt(2, 3);
+							players[firedId].coins += randomInt(4, 6);
 						}
-						players[hitId].hp = Math.max(players[hitId].hp - 1.125, 0);
+						players[hitId].hp = Math.max(players[hitId].hp - 2.5, 0);
 				
 					}
 				}
