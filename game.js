@@ -24,6 +24,7 @@ let myID = null;
 let mySpeed = 0;
 let dx = 0, dy = 0;
 let mouseMoved = false;
+let cooldown = 500;
 const players = {};
 const loadingTurrets = new Set();
 let ground;
@@ -360,6 +361,7 @@ function animate() {
 			const turrets = arsenals[id];
 			turrets.forEach(turret => {
 				if (id === myID) {
+					turret.cooldown = cooldown;
 					turret.position.copy(playerCube.position.clone().add(new THREE.Vector3(0, 1, turret.slot).applyQuaternion(playerCube.quaternion)));
 					// Local player turret: aim based on crosshair
 					const turretdx = crosshairLookTarget.x - turret.position.x;
@@ -854,6 +856,21 @@ document.getElementById('buy-turret').addEventListener('click', function () {
 		}
 		mySlots -= 2;
 		addTurretToPlayer(myID, -mySlots);
+	}
+});
+document.getElementById('upgrade-turrets').addEventListener('click', function () {
+	if (players[myID] && players[myID].coins >= 100) {
+		if (isHost) {
+			players[myID].coins -= 100;
+		} else {
+			if (conn?.open) {
+				conn.send({
+					type: "new coins",
+					coins: players[myID].coins - 100
+				});
+			}
+		}
+		cooldown *= 0.75
 	}
 });
 //end stuff
