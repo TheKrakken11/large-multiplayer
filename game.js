@@ -870,7 +870,7 @@ document.getElementById('upgrade-turrets').addEventListener('click', function ()
 				});
 			}
 		}
-		cooldown *= 0.75
+		cooldown *= 0.8
 	}
 });
 //end stuff
