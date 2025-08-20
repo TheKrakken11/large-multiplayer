@@ -950,3 +950,5 @@ startGame();
 setInterval(() => {
 	if (seenBulletIds.size > 1000) seenBulletIds.clear();
 }, 60000);
+window.players = players;
+window.myID = myID;
